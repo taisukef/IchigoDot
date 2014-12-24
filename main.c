@@ -2,12 +2,6 @@
 //    License: CC BY http://fukuno.jig.jp/
 
 
-//#include "anim_jig.h"
-//#include "anim_w3c.h"
-//#include "anim_sabae.h"
-//#include "anim_kobe.h"
-#include "anim_xmas.h"
-
 #define TYPE 0 // 通常
 //#define TYPE 1 // マトリクスLEDの位置、間違えた時
 
@@ -885,24 +879,6 @@ int main() {
 //	bitman();
 	//	bitman2();
 	matgame1();
-//	matrixled_off();
-//	for (;;);
-//	test();
-	if (!load()) {
-		for (;;) {
-#ifdef ANIM_PATTERN_2
-			if (!animate(DATA_ANIM2, LEN_DATA_ANIM2))
-				break;
-			if (!bitman())
-				break;
-#endif
-			if (!animate(DATA_ANIM, LEN_DATA_ANIM))
-				break;
-			if (!bitman())
-				break;
-		}
-	}
-	uart();
 	
 	return 0;
 }
