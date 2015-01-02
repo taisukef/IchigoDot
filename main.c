@@ -5,6 +5,9 @@
 #define TYPE 0 // 通常
 //#define TYPE 1 // マトリクスLEDの位置、間違えた時
 
+#define AUTO_SLEEP 1
+#define PSG_ON 1
+
 //#define ROTATE 0
 #define ROTATE 1 // 右回転
 //#define ROTATE 3 // 左回転
@@ -29,6 +32,7 @@ LPC1100L
 #include "uart.h"
 #include "xprintf.h"
 #include <string.h>
+#include "rnd.h"
 
 // util
 #define boolean unsigned char
@@ -81,9 +85,26 @@ void println(char* s) {
 
 
 //
+boolean ux_state() {
+	return GPIO1MASKED[1 << 4] == 0;
+}
+int uxbtn = 0;
+int bkuxbtn = 0;
+void ux_tick() {
+	int btn = ux_state();
+	if (btn && !bkuxbtn) {
+		uxbtn = 1;
+	}
+	bkuxbtn = btn;
+}
 
 boolean ux_btn() {
-	return GPIO1MASKED[1 << 4] == 0;
+	//	return GPIO1MASKED[1 << 4] == 0;
+	if (uxbtn) {
+		uxbtn = 0;
+		return 1;
+	}
+	return 0;
 }
 /*
 void sound(int tone, int usec) {
@@ -316,6 +337,8 @@ void initUART() {
 	xdev_in(uart0_getc);
 }
 
+void sleep_tick();
+
 /*
 systick
 */
@@ -328,7 +351,14 @@ void SysTick_Handler(void) {
 	systick++;
 	//
 	matrixled_tick();
+	ux_tick();
+	
+#if PSG_ON == 1	
 	psg_tick();
+#endif
+#if AUTO_SLEEP == 1
+	sleep_tick();
+#endif
 }
 void wait(int n) {
 	int endt = systick + n;
@@ -481,19 +511,6 @@ void bitman2() {
 	}
 }
 
-boolean animate(char* data, int len) {
-	for (;;) {
-		for (int i = 0; i < len - 8; i++) {
-			for (int j = 0; j < 30; j++) {
-				setMatrix(data + i);
-				if (uart0_test())
-					return 0;
-			}
-		}
-		break;
-	}
-	return 1;
-}
 
 void test() {
 	// test
@@ -700,8 +717,16 @@ void deepPowerDown() {
 	asm("wfi");
 }
 
-void matgame1() { // 連打ゲーム
-	char buf[8];
+int timenobtn = 0;
+void sleep_tick() {
+	if (ux_state())
+		timenobtn = 0;
+	timenobtn++;
+	if (timenobtn > 20 * 10000)
+		deepPowerDown();
+}
+
+char buf[8];
 #define PSET(x,y) buf[x & 7] |= 1 << (y & 7)
 #define PRESET(x,y) buf[x & 7] &= ~(1 << (y & 7))
 #define CLS(n) for (int i = 0; i < 8; i++) buf[i] = n ? 0xff : 0;
@@ -767,27 +792,184 @@ f80810204080f800
 			};
 	
 #define WAIT(n) wait(n * 10)
-	
-	int bkbtn = 0;
-	int x = 1;
-	int y = 0;
-	
-	for (;;) {
-		if (!ux_btn()) {
-			break;
+
+
+// buf
+void matrix_put(char* s, int dx, int dy, int dw, int dh) {
+	unsigned char src[8];
+	decode2(s, src);
+	for (int i = 0; i < dw; i++) {
+		for (int j = 0; j < dh; j++) {
+			int x = dx + i;
+			int y = dy + j;
+			if (x < 0 || y < 0 || x > 7 || y > 7)
+				continue;
+			PRESET(x, y);
+			int n = (src[i] >> j) & 1;
+			if (n) {
+				PSET(x, y);
+			}
 		}
-		WAIT(10);
 	}
+	/*
+//	dx = dy = 0;
+//	dw = dh = 8;
+	int mask = ((1 << dh) - 1) >> (8 - dh + dy);
+	for (int i = 0; i < dw; i++) {
+		int y = dx + i;
+		if (y < 0 || y > 7)
+			continue;
+		buf[y] &= ~mask;
+		buf[y] |= (src[i] >> dy) & mask;
+	}
+	*/
+}
+
+void app_mikuji() { // おみくじ
 	for (;;) {
-		playMML("L8EGG");
-		systick = 0;
+		playMML("C8G8C8>G4");
+		ux_btn();
 		for (;;) {
-			FILL("8aa2cc006a953060"); // title
+			FILL("c152f4d2014a4530"); // title
 			FLUSH();
 			if (ux_btn())
 				break;
-			if (systick > 20 * 10000)
-				deepPowerDown();
+			rnd();
+		}
+		systick = 0;
+		for (;;) {
+			WAIT(10);
+			if (!ux_state())
+				break;
+			if (systick > 10000)
+				return;
+		}
+		
+		// 00494bef4da9af00 大凶
+		int btn = 0;
+		systick = 0;
+		// 大中小末
+		char* PTN_UP[] = {
+					"00494bef4da9af00", // 大
+					"0049ebefed494f00", // 中
+					"00464f46ef594f00", // 小
+					"00e64fe64fe9df00", // 末
+				};
+		char* PTN_DOWN[] = {
+					"0060f060f090f000", // 吉
+					"0090b0f0d090f000", // 凶
+				};
+		playMML("G8");
+		for (int k = 0; k < 8; k++) {
+			CLS(0);
+			matrix_put("c152f4d2014a4530", 0, -k, 8, 8);
+			matrix_put("00494bef4da9af00", 0, -k + 8, 8, 8);
+			FLUSH();
+			WAIT(2000 - k * 20);
+		}
+		int view = 0;
+		int next = rnd() % 4;
+		int view2 = 0;
+		int next2 = rnd() % 2;
+		int state = 0;
+		int wcnt = 15;
+		int wcnt2 = 15;
+		int i = 0;
+		int j = 0;
+		int ccnt = 0;
+		int ccnt2 = 0;
+		ux_btn();
+		for (;;) {
+			CLS(0);
+			matrix_put(PTN_UP[view], 0, -(i % 8), 4, 8); // 大
+			matrix_put(PTN_UP[next], 0, 8 - i % 8, 4, 8); // 中
+			matrix_put(PTN_DOWN[view2], 4, -(j % 8), 4, 8); // 吉
+			matrix_put(PTN_DOWN[next2], 4, 8 - j % 8, 4, 8); // 吉
+			FLUSH();
+			WAIT(1);
+			if (!btn) {
+//				if (systick > 10000 && ux_btn())
+				//					btn = 1;
+				if (ux_btn()) {
+					playMML("A8");
+					btn = 1;
+				}
+			}
+			if (state == 0) {
+				ccnt++;
+				if (ccnt == wcnt) {
+					i++;
+					ccnt = 0;
+					if (i % 8 == 0) {
+						playMML("C16");
+						view = next;
+						int n = rnd() % 6;
+						next = n > 3 ? 0 : n;
+						if (btn) {
+							wcnt += wcnt;
+							if (wcnt > 100) {
+								state++;
+								btn = 0;
+							}
+						}
+					}
+				}
+			}
+			ccnt2++;
+			if (ccnt2 == wcnt2) {
+				j++;
+				ccnt2 = 0;
+				if (j % 8 == 0) {
+					if (state == 1)
+						playMML("C16");
+					view2 = next2;
+					next2 = rnd() % 4 == 0 ? 1 : 0;
+					if (state == 1) {
+						if (btn) {
+							wcnt2 += wcnt2;
+							if (wcnt2 > 100)
+								break;
+						}
+					}
+				}
+			}
+		}
+		if (view == 0 && view2 == 0) {
+			playMML("G16R8G2");
+		} else if (view2 == 1) {
+			playMML("C2C8C8");
+		} else {
+			playMML("C8E8G8");
+		}
+		ux_btn();
+		for (;;) {
+			matrix_put(PTN_UP[view], 0, -(i % 8), 4, 8); // 大
+			matrix_put(PTN_DOWN[view2], 4, 0, 4, 8); // 吉
+			FLUSH();
+			WAIT(10);
+			if (ux_btn())
+				break;
+		}
+		/*
+		for (;;) {
+			WAIT(100);
+			if (!ux_btn())
+				break;
+		}
+		*/
+	}
+}
+
+
+void app_hit10() { // 10秒あてゲーム
+	for (;;) {
+		playMML("L8ER8EG16E16");
+		ux_btn();
+		for (;;) {
+			FILL("afeaaa0067252577"); // title
+			FLUSH();
+			if (ux_btn())
+				break;
 		}
 		playMML("C");
 		FILL(PTN_3);
@@ -809,18 +991,120 @@ f80810204080f800
 		CLS(1);
 		systick = 0;
 		int cnt = 0;
+		int bkbtn = 0;
 		for (;;) {
 			int btn = ux_btn();
 			if (btn && !bkbtn) {
-				playMML("A16");
-				PRESET(cnt % 8, cnt / 8);
-				cnt++;
-				if (cnt == 64)
-					break;
+				playMML("A4");
+				CLS(0);
+				break;
 			}
 			bkbtn = btn;
 			setMatrix2(buf);
 			wait(10);
+		}
+		unsigned int score = (10 * 100000 - systick) / 1000;
+		if (score < 0)
+			score = -score;
+		playMML("L8CEG");
+		FILL("00c9aaacacaaaa69"); // ok
+		xprintf("%d\n", systick);
+		xprintf("%d\n", score);
+		/*
+		for (int i = 0;; i++) {
+			int n = time % 10;
+			time /= 10;
+			if (time == 0)
+				break;
+			FILL(PTN_NUM[n]);
+			FLUSH();
+			WAIT(500);
+		}
+		*/
+		FILL(PTN_NUM[score / 10]);
+		PSET(6, 6);
+		FLUSH();
+		WAIT(1000);
+		FILL(PTN_NUM[score % 10]);
+		FLUSH();
+		WAIT(1000);
+		FLUSH();
+		WAIT(1000);
+	}
+}
+
+void app_keytest() {
+	for (;;) {
+		CLS(ux_state());
+		FLUSH();
+//		WAIT(10);
+	}
+	int flg = 0;
+	for (;;) {
+		if (ux_btn())
+			flg = !flg;
+		CLS(flg);
+		FLUSH();
+//		WAIT(1000); // 1,000sec
+		WAIT(1000);
+	}
+}
+
+void app_renda() { // 連打ゲーム
+	for (;;) {
+		playMML("L8EGG");
+		ux_btn();
+		for (;;) {
+			FILL("8aa2cc006595f010"); // title
+//			FILL("8aa2cc006a953060"); // title
+			FLUSH();
+			if (ux_btn())
+				break;
+		}
+		systick = 0;
+		for (;;) {
+			WAIT(10);
+			if (!ux_state())
+				break;
+			if (systick > 10000) 
+				return;
+		}
+		playMML("C");
+		FILL(PTN_3);
+		FLUSH();
+		WAIT(1000);
+		playMML("C");
+		FILL(PTN_2);
+		FLUSH();
+		WAIT(1000);
+		playMML("C");
+		FILL(PTN_1);
+		FLUSH();
+		WAIT(1000);
+		playMML("G2");
+		FILL(PTN_GO);
+		FLUSH();
+		WAIT(1000);
+		
+		CLS(1);
+		FLUSH();
+		systick = 0;
+		int cnt = 0;
+		int bkbtn = 0;
+		ux_btn();
+		for (;;) {
+			int btn = ux_btn();
+			//			if (btn && !bkbtn) {
+			if (btn) {
+				playMML("A16");
+				PRESET(cnt % 8, cnt / 8);
+				FLUSH();
+				cnt++;
+				if (cnt == 64)
+					break;
+			}
+//			bkbtn = btn;
+//			wait(10);
 		}
 		playMML("L8CEG");
 		FILL("00c9aaacacaaaa69"); // ok
@@ -852,7 +1136,40 @@ f80810204080f800
 	}
 }
 
+#include "anim_newyear.h"
+
+boolean animate(char* data, int len) {
+	for (int loop = 0; loop < 10; loop++) {
+		for (int i = 0; i < len - 8; i++) {
+			timenobtn = 0;
+			//				setMatrix2(data + i);
+			CLS(1);
+			for (int k = 0; k < 8; k++)
+				buf[k] = data[k + i];
+			FLUSH();
+			//				if (uart0_test())
+			for (int j = 0; j < 90; j++) {
+				WAIT(1);
+				if (ux_btn()) {
+					return 1;
+				}
+			}
+		}
+//		break;
+	}
+	deepPowerDown();
+	return 1;
+}
+
 int main() {
+	/*
+	IOCON_PIO1_5 = 0x000000d0;
+	GPIO1DIR |= 1 << 5;
+	GPIO1MASKED[1 << 5] = 0;
+	for (int i = 0;; i++) {
+		GPIO1MASKED[1 << 5] = i;
+	}
+	*/
 	matrixled_init();
 	ux_init();
 	
@@ -864,21 +1181,37 @@ int main() {
 #if ENEBLE_WDT == 1
 	InitSysTick(120000);
 #else
-	InitSysTick(12000);
+	InitSysTick(12000);	// 12,000,000Hz 12,000 -> 10 = 1ms
 #endif
 #endif
-	
-	
 	
 #if ENEBLE_WDT == 0
 	initUART();
 #endif
 	
+	/*
+	for (;;) {
+		playMML("C");
+		println("TEST\n");
+		toggleSounder();
+		wait(10000);
+	}
 //	uart();
+	*/
 	
 //	bitman();
 	//	bitman2();
-	matgame1();
-	
+	for (;;) {
+		if (!ux_state()) {
+			break;
+		}
+		WAIT(10);
+	}
+	for (;;) {
+		animate(DATA_ANIM, LEN_DATA_ANIM);
+		app_mikuji();
+//		app_keytest();
+		app_renda();
+	}
 	return 0;
 }
