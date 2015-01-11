@@ -28,7 +28,7 @@
 // Oscillator frequency (10MHz >= clk >= 25MHz)
 #define	F_OSC	12000000
 // PLL multiplier = 1..32 (IRC:1..4 12MHz/24MHz/36MHz/48MHz)
-#define PLL_M	1 // 12MHz,, ok 8 96MHz?? ng 9 or higher (12MHz 1.4mA)
+#define PLL_M	2 // 12MHz ok 8 96MHz?? ng 9 or higher (12MHz 1.4mA)
 
 // Expected main clock frequency = F_OSC * (CLK_SEL == 3 ? PLL_M : 1)
 #define	MCLK	(F_OSC * (CLK_SEL == 3 ? PLL_M : 1))
