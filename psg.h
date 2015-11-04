@@ -4,6 +4,16 @@ void toggleSounder();
 void wait(int);
 
 int soundon = 0;
+
+void enableSounder(int n) {
+	soundon = n;
+	if (soundon) {
+		GPIO1DIR |= 1 << 5;
+	} else {
+		GPIO1DIR &= ~(1 << 5);
+	}
+}
+
 void CT16B0_IRQHandler(void) {
 	if (TMR16B0IR & 0x01){
 		if (soundon)
@@ -33,6 +43,9 @@ void psg_init() {
 	psgmml = psgbuf;
 	psgwaitcnt = psgwaitcnt2 = 0;
 	
+	IOCON_PIO1_5 = 0x000000d0;
+	GPIO1DIR &= ~(1 << 5);
+	
 	__set_SYSAHBCLKCTRL(PCCT16B0, 1); // on 16bit timer 0
 	TMR16B0PR  = (SYSCLK / 1000000) - 1; // pre scaler
 	TMR16B0MR0 = 50;
@@ -51,7 +64,7 @@ void psg_tick() {
 	if (psgwaitcnt > 0) {
 		psgwaitcnt--;
 		if (psgwaitcnt == 0) {
-			soundon = 0;
+			enableSounder(0);
 		}
 		return;
 	}
@@ -60,24 +73,12 @@ void psg_tick() {
 		return;
 	}
 	
-//	return;
-	/*
-	int t = 4;
-	int len = 1000;
-			TMR16B0MR0 = sound[t];
-			soundon = 1;
-		psgwaitcnt = len;
-	return;
-	*/
-//	psgmml = psgbuf;
-//	psgbuf[0] = 'c';
-//	psgbuf[1] = 0;
 	for (;;) {
 		int t = -1;
 		char c = *psgmml++;
 		if (c == 0) {
 			psgmml--;
-			soundon = 0;
+			enableSounder(0);
 			return;
 		} else if (c == '>') {
 			psgoct++;
@@ -153,11 +154,11 @@ void psg_tick() {
 		//
 		
 		if (t == -1 || t >= 5 * 12) {
-			soundon = 0;
+			enableSounder(0);
 		//		stopTimer();
 		} else {
 			TMR16B0MR0 = sound[t];
-			soundon = 1;
+			enableSounder(1);
 		}
 		psgwaitcnt = len * 800;
 		psgwaitcnt2 = psgwaitcnt / 8;
