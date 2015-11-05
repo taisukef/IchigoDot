@@ -89,19 +89,26 @@ boolean ux_state() {
 	return GPIO1MASKED[1 << 4] == 0;
 }
 int uxbtn = 0;
+int uxbtnret = 0;
 int bkuxbtn = 0;
+int btncount = 0;
+#define BTN_RESET 300
 void ux_tick() {
+	if (btncount > 0) {
+		btncount--;
+		return;
+	}
 	int btn = ux_state();
 	if (btn && !bkuxbtn) {
 		uxbtn = 1;
+		uxbtnret = 1;
+		btncount = BTN_RESET;
 	}
 	bkuxbtn = btn;
 }
-
 boolean ux_btn() {
-	//	return GPIO1MASKED[1 << 4] == 0;
-	if (uxbtn) {
-		uxbtn = 0;
+	if (uxbtnret) {
+		uxbtnret = 0;
 		return 1;
 	}
 	return 0;
@@ -143,7 +150,7 @@ void ux_init() {
 	IOCON_PIO1_4 = 0x000000d0;
 	GPIO1DIR &= ~(1 << 4);
 	IOCON_PIO1_5 = 0x000000d0;
-	GPIO1DIR |= 1 << 5;
+	GPIO1DIR &= ~(1 << 5);
 	
 	psg_init();
 }
@@ -1094,7 +1101,6 @@ void app_renda() { // 連打ゲーム
 		ux_btn();
 		for (;;) {
 			int btn = ux_btn();
-			//			if (btn && !bkbtn) {
 			if (btn) {
 				playMML("A16");
 				PRESET(cnt % 8, cnt / 8);
@@ -1104,7 +1110,6 @@ void app_renda() { // 連打ゲーム
 					break;
 			}
 //			bkbtn = btn;
-//			wait(10);
 		}
 		playMML("L8CEG");
 		FILL("00c9aaacacaaaa69"); // ok
